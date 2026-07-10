@@ -6,6 +6,7 @@ PROGRAM_NAME="${KUN_PROGRAM_NAME:-kun.sh}"
 print_usage() {
   cat <<EOF
 Usage:
+  $PROGRAM_NAME           Open the interactive menu
   $PROGRAM_NAME -d        Install Docker Engine and Docker Compose plugin
   $PROGRAM_NAME -u        Install and configure UFW
   $PROGRAM_NAME -d -u     Run Docker installation, then UFW configuration
@@ -15,6 +16,26 @@ Options:
   -d  Install Docker from the official Docker apt repository.
   -u  Install UFW, deny public SSH, allow SSH on tailscale0, and allow Tailscale UDP 41641.
   -h  Show help.
+EOF
+}
+
+print_menu() {
+  cat <<'EOF'
+
++--------------------------------------------------+
+|                 KUN Server Manager               |
++--------------------------------------------------+
+|  1) Install Docker Engine and Compose plugin     |
+|  2) Install UFW and configure Tailscale rules    |
+|  3) List listening ports                         |
+|  4) View Docker service and containers           |
+|  5) View server overview                          |
+|  6) View Tailscale status                         |
+|  7) Manage public UFW ports                       |
+|  8) Update system packages                        |
+|--------------------------------------------------|
+|  0) Exit                                         |
++--------------------------------------------------+
 EOF
 }
 
@@ -179,13 +200,244 @@ EOF
   log "UFW configuration completed"
 }
 
+list_listening_ports() {
+  if ! command -v ss >/dev/null 2>&1; then
+    echo "ss command is unavailable. Install iproute2 to enable this view." >&2
+    return 0
+  fi
+
+  log "Listening TCP and UDP ports"
+  $SUDO ss -lntup
+}
+
+show_docker_status() {
+  if ! command -v docker >/dev/null 2>&1; then
+    log "Docker is not installed"
+    return 0
+  fi
+
+  log "Docker service state"
+  printf 'Active: '
+  $SUDO systemctl is-active docker 2>/dev/null || true
+  printf 'Enabled: '
+  $SUDO systemctl is-enabled docker 2>/dev/null || true
+
+  log "Docker version"
+  $SUDO docker version --format '{{.Server.Version}}' 2>/dev/null || true
+
+  log "Docker containers"
+  $SUDO docker ps -a || echo "Docker daemon is unavailable." >&2
+}
+
+show_server_overview() {
+  log "Server overview"
+  printf 'Hostname: '
+  hostname
+  printf 'OS: '
+  if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    printf '%s\n' "${PRETTY_NAME:-unknown}"
+  else
+    echo "unknown"
+  fi
+  printf 'Kernel: '
+  uname -r
+  printf 'Uptime: '
+  uptime -p 2>/dev/null || uptime
+  printf 'CPU cores: '
+  nproc 2>/dev/null || getconf _NPROCESSORS_ONLN
+  printf 'IP addresses: '
+  hostname -I 2>/dev/null || echo "unavailable"
+
+  log "Root filesystem"
+  df -h /
+
+  if command -v free >/dev/null 2>&1; then
+    log "Memory"
+    free -h
+  fi
+}
+
+show_tailscale_status() {
+  if ! command -v tailscale >/dev/null 2>&1; then
+    log "Tailscale is not installed"
+    return 0
+  fi
+
+  log "Tailscale status"
+  $SUDO tailscale status || echo "Tailscale is not connected." >&2
+
+  log "Tailscale IP addresses"
+  $SUDO tailscale ip || echo "Tailscale IP addresses are unavailable." >&2
+}
+
+validate_port() {
+  case "$1" in
+    ''|*[!0-9]*)
+      return 1
+      ;;
+  esac
+
+  [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+manage_ufw_ports() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    echo "UFW is not installed. Run menu option 2 first." >&2
+    return 0
+  fi
+
+  PUBLIC_INTERFACE="$(detect_public_interface)"
+
+  while :; do
+    cat <<EOF
+
++--------------------------------------------------+
+|              Public UFW Port Management          |
++--------------------------------------------------+
+| Interface: $PUBLIC_INTERFACE
+|  1) Open one TCP port                            |
+|  2) Open one UDP port                            |
+|  3) Close one TCP port                           |
+|  4) Close one UDP port                           |
+|  5) Show numbered UFW rules                      |
+|--------------------------------------------------|
+|  0) Return to main menu                          |
++--------------------------------------------------+
+EOF
+    printf 'Select an option [0-5]: '
+    IFS= read -r UFW_CHOICE || return 0
+
+    case "$UFW_CHOICE" in
+      0)
+        return 0
+        ;;
+      1)
+        UFW_ACTION="allow"
+        UFW_PROTOCOL="tcp"
+        ;;
+      2)
+        UFW_ACTION="allow"
+        UFW_PROTOCOL="udp"
+        ;;
+      3)
+        UFW_ACTION="delete allow"
+        UFW_PROTOCOL="tcp"
+        ;;
+      4)
+        UFW_ACTION="delete allow"
+        UFW_PROTOCOL="udp"
+        ;;
+      5)
+        $SUDO ufw status numbered
+        printf '\nPress Enter to continue...'
+        IFS= read -r _ || return 0
+        continue
+        ;;
+      *)
+        echo "Invalid option. Enter a number from 0 to 5." >&2
+        continue
+        ;;
+    esac
+
+    printf 'Port [1-65535]: '
+    IFS= read -r PORT || return 0
+    if ! validate_port "$PORT"; then
+      echo "Invalid port: $PORT" >&2
+      continue
+    fi
+
+    if [ "$UFW_ACTION" = "delete allow" ]; then
+      printf 'Close public %s port %s on %s? [y/N]: ' "$UFW_PROTOCOL" "$PORT" "$PUBLIC_INTERFACE"
+      IFS= read -r CONFIRM || return 0
+      case "$CONFIRM" in
+        y|Y|yes|YES)
+          $SUDO ufw --force delete allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
+          ;;
+        *)
+          echo "No changes made."
+          ;;
+      esac
+    else
+      $SUDO ufw allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
+    fi
+  done
+}
+
+update_system_packages() {
+  require_ubuntu
+
+  log "Updating package index"
+  $SUDO apt-get update
+
+  log "Upgrading installed packages"
+  $SUDO apt-get upgrade -y
+
+  log "System package update completed"
+}
+
+run_interactive_menu() {
+  while :; do
+    print_menu
+    printf 'Select an option [0-8]: '
+    IFS= read -r CHOICE || {
+      printf '\n'
+      return 0
+    }
+
+    case "$CHOICE" in
+      0)
+        log "Goodbye"
+        return 0
+        ;;
+      1)
+        setup_sudo
+        install_docker
+        ;;
+      2)
+        setup_sudo
+        configure_ufw
+        ;;
+      3)
+        setup_sudo
+        list_listening_ports
+        ;;
+      4)
+        setup_sudo
+        show_docker_status
+        ;;
+      5)
+        show_server_overview
+        ;;
+      6)
+        setup_sudo
+        show_tailscale_status
+        ;;
+      7)
+        setup_sudo
+        manage_ufw_ports
+        ;;
+      8)
+        setup_sudo
+        update_system_packages
+        ;;
+      *)
+        echo "Invalid option. Enter a number from 0 to 8." >&2
+        ;;
+    esac
+
+    printf '\nPress Enter to return to the menu...'
+    IFS= read -r _ || return 0
+  done
+}
+
 main() {
   RUN_DOCKER=0
   RUN_UFW=0
 
   if [ "$#" -eq 0 ]; then
-    print_usage >&2
-    exit 1
+    run_interactive_menu
+    exit 0
   fi
 
   while getopts ":duh" OPT; do
