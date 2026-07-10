@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 set -eu
 
-PROGRAM_NAME="$(basename "$0")"
+PROGRAM_NAME="${KUN_PROGRAM_NAME:-kun.sh}"
 
 print_usage() {
   cat <<EOF
