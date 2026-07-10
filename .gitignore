@@ -1,0 +1,21 @@
+# Local AI assistant state, prompts, and generated context
+.codex/
+.claude/
+.cursor/
+.continue/
+.aider*
+.github/copilot-instructions.md
+
+# Local editor and operating-system metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local configuration, secrets, logs, and temporary files
+.env
+.env.*
+!.env.example
+*.log
+tmp/
