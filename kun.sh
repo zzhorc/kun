@@ -25,12 +25,15 @@ print_menu() {
 +--------------------------------------------------+
 |                 KUN Server Manager               |
 +--------------------------------------------------+
-|  1) Install Docker Engine and Compose plugin     |
-|  2) Install UFW and configure Tailscale rules    |
-|  3) List listening ports                         |
-|  4) View Docker service and containers           |
-|  5) View server overview                          |
-|  6) View Tailscale status                         |
+| View                                             |
+|  1) List listening ports                         |
+|  2) View Docker service and containers           |
+|  3) View server overview                          |
+|  4) View Tailscale status                         |
+|--------------------------------------------------|
+| Execute / Manage                                 |
+|  5) Install Docker Engine and Compose plugin     |
+|  6) Install UFW and configure Tailscale rules    |
 |  7) Manage public UFW ports                       |
 |  8) Update system packages                        |
 |  9) Manage SSH security                           |
@@ -284,7 +287,7 @@ validate_port() {
 
 manage_ufw_ports() {
   if ! command -v ufw >/dev/null 2>&1; then
-    echo "UFW is not installed. Run menu option 2 first." >&2
+    echo "UFW is not installed. Run menu option 6 first." >&2
     return 0
   fi
 
@@ -297,10 +300,13 @@ manage_ufw_ports() {
 |              Public UFW Port Management          |
 +--------------------------------------------------+
 | Interface: $PUBLIC_INTERFACE
+| Execute / Manage                                 |
 |  1) Open one TCP port                            |
 |  2) Open one UDP port                            |
 |  3) Close one TCP port                           |
 |  4) Close one UDP port                           |
+|--------------------------------------------------|
+| View                                             |
 |  5) Show numbered UFW rules                      |
 |--------------------------------------------------|
 |  0) Return to main menu                          |
@@ -383,8 +389,11 @@ print_ssh_menu() {
 +--------------------------------------------------+
 |                SSH Security Management           |
 +--------------------------------------------------+
+| View                                             |
 |  1) Analyze SSH brute-force attempts              |
 |  2) Inspect authorized SSH keys                   |
+|--------------------------------------------------|
+| Execute / Manage                                 |
 |  3) Disable SSH password login                    |
 |--------------------------------------------------|
 |  0) Return to main menu                           |
@@ -776,26 +785,26 @@ run_interactive_menu() {
         ;;
       1)
         setup_sudo
-        install_docker
+        list_listening_ports
         ;;
       2)
         setup_sudo
-        configure_ufw
+        show_docker_status
         ;;
       3)
-        setup_sudo
-        list_listening_ports
+        show_server_overview
         ;;
       4)
         setup_sudo
-        show_docker_status
+        show_tailscale_status
         ;;
       5)
-        show_server_overview
+        setup_sudo
+        install_docker
         ;;
       6)
         setup_sudo
-        show_tailscale_status
+        configure_ufw
         ;;
       7)
         setup_sudo
