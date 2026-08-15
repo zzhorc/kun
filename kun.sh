@@ -23,22 +23,23 @@ print_menu() {
   cat <<'EOF'
 
 +--------------------------------------------------+
-|                 KUN Server Manager               |
+|                  KUN 服务器管理                  |
 +--------------------------------------------------+
-| View                                             |
-|  1) List listening ports                         |
-|  2) View Docker service and containers           |
-|  3) View server overview                          |
-|  4) View Tailscale status                         |
+| 查看                                             |
+|  1) 查看监听端口                                 |
+|  2) 查看 Docker 服务及容器                       |
+|  3) 查看服务器概况                               |
+|  4) 查看 Tailscale 状态                          |
+|  5) 查看 UFW 状态及规则                          |
 |--------------------------------------------------|
-| Execute / Manage                                 |
-|  5) Install Docker Engine and Compose plugin     |
-|  6) Install UFW and configure Tailscale rules    |
-|  7) Manage public UFW ports                       |
-|  8) Update system packages                        |
-|  9) Manage SSH security                           |
+| 执行 / 管理                                      |
+|  6) 安装 Docker Engine 和 Compose 插件           |
+|  7) 安装 UFW 并配置 Tailscale 规则               |
+|  8) 管理公网 UFW 端口                            |
+|  9) 更新系统软件包                               |
+| 10) 管理 SSH 安全                                |
 |--------------------------------------------------|
-|  0) Exit                                         |
+|  0) 退出                                         |
 +--------------------------------------------------+
 EOF
 }
@@ -287,7 +288,7 @@ validate_port() {
 
 manage_ufw_ports() {
   if ! command -v ufw >/dev/null 2>&1; then
-    echo "UFW is not installed. Run menu option 6 first." >&2
+    echo "尚未安装 UFW，请先执行主菜单选项 7。" >&2
     return 0
   fi
 
@@ -297,22 +298,19 @@ manage_ufw_ports() {
     cat <<EOF
 
 +--------------------------------------------------+
-|              Public UFW Port Management          |
+|                公网 UFW 端口管理                 |
 +--------------------------------------------------+
-| Interface: $PUBLIC_INTERFACE
-| Execute / Manage                                 |
-|  1) Open one TCP port                            |
-|  2) Open one UDP port                            |
-|  3) Close one TCP port                           |
-|  4) Close one UDP port                           |
+| 网络接口: $PUBLIC_INTERFACE
+| 执行 / 管理                                      |
+|  1) 开放一个 TCP 端口                            |
+|  2) 开放一个 UDP 端口                            |
+|  3) 关闭一个 TCP 端口                            |
+|  4) 关闭一个 UDP 端口                            |
 |--------------------------------------------------|
-| View                                             |
-|  5) Show numbered UFW rules                      |
-|--------------------------------------------------|
-|  0) Return to main menu                          |
+|  0) 返回主菜单                                   |
 +--------------------------------------------------+
 EOF
-    printf 'Select an option [0-5]: '
+    printf '请选择 [0-4]: '
     IFS= read -r UFW_CHOICE || return 0
 
     case "$UFW_CHOICE" in
@@ -335,40 +333,44 @@ EOF
         UFW_ACTION="delete allow"
         UFW_PROTOCOL="udp"
         ;;
-      5)
-        $SUDO ufw status numbered
-        printf '\nPress Enter to continue...'
-        IFS= read -r _ || return 0
-        continue
-        ;;
       *)
-        echo "Invalid option. Enter a number from 0 to 5." >&2
+        echo "无效选项，请输入 0 到 4。" >&2
         continue
         ;;
     esac
 
-    printf 'Port [1-65535]: '
+    printf '端口 [1-65535]: '
     IFS= read -r PORT || return 0
     if ! validate_port "$PORT"; then
-      echo "Invalid port: $PORT" >&2
+      echo "无效端口: $PORT" >&2
       continue
     fi
 
     if [ "$UFW_ACTION" = "delete allow" ]; then
-      printf 'Close public %s port %s on %s? [y/N]: ' "$UFW_PROTOCOL" "$PORT" "$PUBLIC_INTERFACE"
+      printf '确认关闭 %s 上的公网 %s 端口 %s？[y/N]: ' "$PUBLIC_INTERFACE" "$UFW_PROTOCOL" "$PORT"
       IFS= read -r CONFIRM || return 0
       case "$CONFIRM" in
         y|Y|yes|YES)
           $SUDO ufw --force delete allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
           ;;
         *)
-          echo "No changes made."
+          echo "未做任何更改。"
           ;;
       esac
     else
       $SUDO ufw allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
     fi
   done
+}
+
+show_ufw_status() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    echo "尚未安装 UFW，请先执行主菜单选项 7。" >&2
+    return 0
+  fi
+
+  log "UFW 状态及规则"
+  $SUDO ufw status numbered
 }
 
 update_system_packages() {
@@ -387,16 +389,16 @@ print_ssh_menu() {
   cat <<'EOF'
 
 +--------------------------------------------------+
-|                SSH Security Management           |
+|                  SSH 安全管理                    |
 +--------------------------------------------------+
-| View                                             |
-|  1) Analyze SSH brute-force attempts              |
-|  2) Inspect authorized SSH keys                   |
+| 查看                                             |
+|  1) 分析 SSH 暴力破解尝试                        |
+|  2) 检查已授权的 SSH 密钥                        |
 |--------------------------------------------------|
-| Execute / Manage                                 |
-|  3) Disable SSH password login                    |
+| 执行 / 管理                                      |
+|  3) 禁用 SSH 密码登录                            |
 |--------------------------------------------------|
-|  0) Return to main menu                           |
+|  0) 返回主菜单                                   |
 +--------------------------------------------------+
 EOF
 }
@@ -422,16 +424,16 @@ analyze_ssh_brute_force() {
   cat <<'EOF'
 
 +--------------------------------------------------+
-|              SSH Failure Time Range               |
+|                SSH 失败时间范围                  |
 +--------------------------------------------------+
-|  1) Last 1 day                                    |
-|  2) Last 7 days                                   |
-|  3) Last 15 days                                  |
+|  1) 最近 1 天                                    |
+|  2) 最近 7 天                                    |
+|  3) 最近 15 天                                   |
 |--------------------------------------------------|
-|  0) Return                                        |
+|  0) 返回                                         |
 +--------------------------------------------------+
 EOF
-  printf 'Select a time range [0-3]: '
+  printf '请选择时间范围 [0-3]: '
   IFS= read -r RANGE_CHOICE || return 0
 
   case "$RANGE_CHOICE" in
@@ -440,7 +442,7 @@ EOF
     2) DAYS=7 ;;
     3) DAYS=15 ;;
     *)
-      echo "Invalid option. Enter a number from 0 to 3." >&2
+      echo "无效选项，请输入 0 到 3。" >&2
       return 0
       ;;
   esac
@@ -741,7 +743,7 @@ EOF
 manage_ssh_security() {
   while :; do
     print_ssh_menu
-    printf 'Select an option [0-3]: '
+    printf '请选择 [0-3]: '
     IFS= read -r SSH_CHOICE || return 0
 
     case "$SSH_CHOICE" in
@@ -759,12 +761,12 @@ manage_ssh_security() {
         disable_ssh_password_login
         ;;
       *)
-        echo "Invalid option. Enter a number from 0 to 3." >&2
+        echo "无效选项，请输入 0 到 3。" >&2
         continue
         ;;
     esac
 
-    printf '\nPress Enter to return to SSH management...'
+    printf '\n按 Enter 键返回 SSH 安全管理...'
     IFS= read -r _ || return 0
   done
 }
@@ -772,7 +774,7 @@ manage_ssh_security() {
 run_interactive_menu() {
   while :; do
     print_menu
-    printf 'Select an option [0-9]: '
+    printf '请选择 [0-10]: '
     IFS= read -r CHOICE || {
       printf '\n'
       return 0
@@ -780,7 +782,7 @@ run_interactive_menu() {
 
     case "$CHOICE" in
       0)
-        log "Goodbye"
+        log "再见"
         return 0
         ;;
       1)
@@ -800,29 +802,33 @@ run_interactive_menu() {
         ;;
       5)
         setup_sudo
-        install_docker
+        show_ufw_status
         ;;
       6)
         setup_sudo
-        configure_ufw
+        install_docker
         ;;
       7)
         setup_sudo
-        manage_ufw_ports
+        configure_ufw
         ;;
       8)
         setup_sudo
-        update_system_packages
+        manage_ufw_ports
         ;;
       9)
+        setup_sudo
+        update_system_packages
+        ;;
+      10)
         manage_ssh_security
         ;;
       *)
-        echo "Invalid option. Enter a number from 0 to 9." >&2
+        echo "无效选项，请输入 0 到 10。" >&2
         ;;
     esac
 
-    printf '\nPress Enter to return to the menu...'
+    printf '\n按 Enter 键返回主菜单...'
     IFS= read -r _ || return 0
   done
 }
