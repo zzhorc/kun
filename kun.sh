@@ -8,13 +8,13 @@ print_usage() {
 Usage:
   $PROGRAM_NAME           Open the interactive menu
   $PROGRAM_NAME -d        Install Docker Engine and Docker Compose plugin
-  $PROGRAM_NAME -u        Install and configure UFW
-  $PROGRAM_NAME -d -u     Run Docker installation, then UFW configuration
+  $PROGRAM_NAME -u        Install UFW and configure Tailscale SSH rules
+  $PROGRAM_NAME -d -u     Run Docker installation, then UFW setup
   $PROGRAM_NAME -h        Show this help
 
 Options:
   -d  Install Docker from the official Docker apt repository.
-  -u  Install UFW, deny public SSH, allow SSH on tailscale0, and allow Tailscale UDP 41641.
+  -u  Install UFW, deny public SSH, and allow SSH on tailscale0.
   -h  Show help.
 EOF
 }
@@ -34,10 +34,11 @@ print_menu() {
 |--------------------------------------------------|
 | 执行 / 管理                                      |
 |  6) 安装 Docker Engine 和 Compose 插件           |
-|  7) 安装 UFW 并配置 Tailscale 规则               |
-|  8) 管理公网 UFW 端口                            |
-|  9) 更新系统软件包                               |
-| 10) 管理 SSH 安全                                |
+|  7) 安装 UFW                                     |
+|  8) 配置 Tailscale 的 UFW 22 端口规则            |
+|  9) 管理公网 UFW 端口                            |
+| 10) 更新系统软件包                               |
+| 11) 管理 SSH 安全                                |
 |--------------------------------------------------|
 |  0) 退出                                         |
 +--------------------------------------------------+
@@ -164,12 +165,23 @@ EOF
   log "Docker installation completed"
 }
 
-configure_ufw() {
+install_ufw() {
   require_ubuntu
 
   log "Installing UFW and network detection tools"
   $SUDO apt-get update
   $SUDO apt-get install -y ufw iproute2
+
+  log "UFW installation completed"
+}
+
+configure_tailscale_ufw_ssh() {
+  require_ubuntu
+
+  if ! command -v ufw >/dev/null 2>&1; then
+    echo "尚未安装 UFW，请先执行主菜单选项 7。" >&2
+    return 0
+  fi
 
   PUBLIC_INTERFACE="$(detect_public_interface)"
 
@@ -185,24 +197,18 @@ configure_ufw() {
   log "Denying SSH on $PUBLIC_INTERFACE"
   $SUDO ufw deny in on "$PUBLIC_INTERFACE" proto tcp from 0.0.0.0/0 to any port 22
 
-  log "Allowing Tailscale UDP 41641 on $PUBLIC_INTERFACE"
-  $SUDO ufw allow in on "$PUBLIC_INTERFACE" proto udp from 0.0.0.0/0 to any port 41641
-
   log "Enabling UFW"
   $SUDO ufw --force enable
 
   log "UFW status"
   $SUDO ufw status verbose
 
-  log "Example UFW commands"
-  cat <<EOF
-ufw allow in on $PUBLIC_INTERFACE proto tcp from 0.0.0.0/0 to any port 80
-ufw allow in on $PUBLIC_INTERFACE proto tcp from 0.0.0.0/0 to any port 443
-ufw allow in on $PUBLIC_INTERFACE proto udp from 0.0.0.0/0 to any port 41641
-ufw allow in on tailscale0 proto tcp from 0.0.0.0/0 to any port 22
-EOF
+  log "Tailscale UFW SSH rules completed"
+}
 
-  log "UFW configuration completed"
+install_and_configure_ufw() {
+  install_ufw
+  configure_tailscale_ufw_ssh
 }
 
 list_listening_ports() {
@@ -774,7 +780,7 @@ manage_ssh_security() {
 run_interactive_menu() {
   while :; do
     print_menu
-    printf '请选择 [0-10]: '
+    printf '请选择 [0-11]: '
     IFS= read -r CHOICE || {
       printf '\n'
       return 0
@@ -810,21 +816,25 @@ run_interactive_menu() {
         ;;
       7)
         setup_sudo
-        configure_ufw
+        install_ufw
         ;;
       8)
         setup_sudo
-        manage_ufw_ports
+        configure_tailscale_ufw_ssh
         ;;
       9)
         setup_sudo
-        update_system_packages
+        manage_ufw_ports
         ;;
       10)
+        setup_sudo
+        update_system_packages
+        ;;
+      11)
         manage_ssh_security
         ;;
       *)
-        echo "无效选项，请输入 0 到 10。" >&2
+        echo "无效选项，请输入 0 到 11。" >&2
         ;;
     esac
 
@@ -878,7 +888,7 @@ main() {
   fi
 
   if [ "$RUN_UFW" -eq 1 ]; then
-    configure_ufw
+    install_and_configure_ufw
   fi
 }
 
