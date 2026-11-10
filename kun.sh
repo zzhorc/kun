@@ -345,6 +345,27 @@ EOF
         ;;
     esac
 
+    cat <<EOF
+
+请选择 IP 版本:
+  1) IPv4
+  2) IPv6
+  3) all（IPv4 和 IPv6）
+  0) 返回端口管理
+EOF
+    printf '请选择 [0-3]: '
+    IFS= read -r UFW_IP_CHOICE || return 0
+    case "$UFW_IP_CHOICE" in
+      0) continue ;;
+      1) UFW_SOURCE="0.0.0.0/0"; UFW_IP_LABEL="IPv4" ;;
+      2) UFW_SOURCE="::/0"; UFW_IP_LABEL="IPv6" ;;
+      3) UFW_SOURCE="any"; UFW_IP_LABEL="all（IPv4 和 IPv6）" ;;
+      *)
+        echo "无效选项，请输入 0 到 3。" >&2
+        continue
+        ;;
+    esac
+
     printf '端口 [1-65535]: '
     IFS= read -r PORT || return 0
     if ! validate_port "$PORT"; then
@@ -353,18 +374,18 @@ EOF
     fi
 
     if [ "$UFW_ACTION" = "delete allow" ]; then
-      printf '确认关闭 %s 上的公网 %s 端口 %s？[y/N]: ' "$PUBLIC_INTERFACE" "$UFW_PROTOCOL" "$PORT"
+      printf '确认关闭 %s 上的公网 %s %s 端口 %s？[y/N]: ' "$PUBLIC_INTERFACE" "$UFW_IP_LABEL" "$UFW_PROTOCOL" "$PORT"
       IFS= read -r CONFIRM || return 0
       case "$CONFIRM" in
         y|Y|yes|YES)
-          $SUDO ufw --force delete allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
+          $SUDO ufw --force delete allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" from "$UFW_SOURCE" to any port "$PORT"
           ;;
         *)
           echo "未做任何更改。"
           ;;
       esac
     else
-      $SUDO ufw allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" to any port "$PORT"
+      $SUDO ufw allow in on "$PUBLIC_INTERFACE" proto "$UFW_PROTOCOL" from "$UFW_SOURCE" to any port "$PORT"
     fi
   done
 }

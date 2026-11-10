@@ -74,4 +74,43 @@ if grep 'deny in on eth0' "$SCRIPT" >/dev/null; then
   fail "UFW branch must not hardcode eth0 for SSH deny rule"
 fi
 
+# Run the interactive firewall flow with command stubs; never touch host rules.
+run_ufw_menu() (
+  eval "$(sed '/^main "\$@"$/d' "$SCRIPT")"
+  SUDO=""
+  detect_public_interface() { echo "test0"; }
+  ufw() { printf 'UFW_CALL: %s\n' "$*"; }
+  manage_ufw_ports
+)
+
+for ACTION_CHOICE in 1 2 3 4; do
+  case "$ACTION_CHOICE" in
+    1) EXPECT_ACTION="allow"; EXPECT_PROTOCOL="tcp" ;;
+    2) EXPECT_ACTION="allow"; EXPECT_PROTOCOL="udp" ;;
+    3) EXPECT_ACTION="--force delete allow"; EXPECT_PROTOCOL="tcp" ;;
+    4) EXPECT_ACTION="--force delete allow"; EXPECT_PROTOCOL="udp" ;;
+  esac
+  for IP_CHOICE in 1 2 3; do
+    case "$IP_CHOICE" in
+      1) EXPECT_SOURCE="0.0.0.0/0"; EXPECT_LABEL="IPv4" ;;
+      2) EXPECT_SOURCE="::/0"; EXPECT_LABEL="IPv6" ;;
+      3) EXPECT_SOURCE="any"; EXPECT_LABEL="all（IPv4 和 IPv6）" ;;
+    esac
+    UFW_OUTPUT="$(printf '%s\n' "$ACTION_CHOICE" "$IP_CHOICE" 8080 y 0 | run_ufw_menu 2>&1)"
+    echo "$UFW_OUTPUT" | grep -F "UFW_CALL: $EXPECT_ACTION in on test0 proto $EXPECT_PROTOCOL from $EXPECT_SOURCE to any port 8080" >/dev/null ||
+      fail "wrong firewall command for action $ACTION_CHOICE, IP version $IP_CHOICE"
+    if [ "$ACTION_CHOICE" -ge 3 ]; then
+      echo "$UFW_OUTPUT" | grep -F "确认关闭 test0 上的公网 $EXPECT_LABEL $EXPECT_PROTOCOL 端口 8080" >/dev/null ||
+        fail "close confirmation must include the IP version"
+    fi
+  done
+done
+
+for UFW_INPUT in '1\n0\n0\n' '1\n9\n0\n' '1\n1\n0\n0\n' '1\n2\n65536\n0\n' '3\n3\n8080\nn\n0\n' '1\n'; do
+  UFW_OUTPUT="$(printf '%b' "$UFW_INPUT" | run_ufw_menu 2>&1)"
+  if echo "$UFW_OUTPUT" | grep -F 'UFW_CALL:' >/dev/null; then
+    fail "cancelled or invalid input must not change firewall rules"
+  fi
+done
+
 echo "All kun.sh checks passed."
